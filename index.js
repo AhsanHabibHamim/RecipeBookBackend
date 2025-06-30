@@ -9,7 +9,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:8080',
   'https://recipe-book-39501.web.app',
-  'https://your-render-app.onrender.com' // আপনার Render.com ডোমেইন
+  'https://recipebookbackend-50g6.onrender.com' // আপনার Render.com ডোমেইন
 ];
 
 const corsOptions = {
@@ -371,12 +371,12 @@ app.use((req, res) => {
 // সার্ভার স্টার্ট
 const port = process.env.PORT || 5000;
 
-if (process.env.NODE_ENV === 'production') {
-  // Production মোডে শুধু সার্ভার স্টার্ট করবে
-  app.listen(port, () => {
-    console.log(`Server running in production mode on port ${port}`);
-  });
-} else {
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server running on port ${port}`);
+}).on('error', (err) => {
+  console.error('Server failed to start:', err);
+});
+else {
   // Development মোডে DB কানেক্ট করে সার্ভার স্টার্ট করবে
   connectToMongoDB()
     .then(() => {

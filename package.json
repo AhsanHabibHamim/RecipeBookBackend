@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build": "echo 'Build complete'",
+    "build": "echo 'Build complete' && exit 0",
     "vercel-build": "npm install"
   },
   "dependencies": {

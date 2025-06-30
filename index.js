@@ -1,14 +1,15 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express();
 
 // Enhanced CORS configuration
 const allowedOrigins = [
-  "http://localhost:8080",
-  "https://recipe-book-39501.web.app",
+  'http://localhost:8080',
+  'https://recipe-book-39501.web.app',
+  'https://recipe-book-39501.vercel.app' // Add your Vercel app URL
 ];
 
 const corsOptions = {
@@ -16,19 +17,19 @@ const corsOptions = {
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      callback(new Error("Not allowed by CORS"));
+      callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // Enable pre-flight for all routes
+app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
 app.use(express.json());
 
-// MongoDB connection with proper error handling
+// MongoDB connection with enhanced error handling
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.nfwtcj8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 const client = new MongoClient(uri, {
@@ -39,60 +40,83 @@ const client = new MongoClient(uri, {
   },
   connectTimeoutMS: 10000,
   socketTimeoutMS: 30000,
+  maxPoolSize: 50, // Added connection pooling
+  minPoolSize: 10,
+  serverSelectionTimeoutMS: 5000,
 });
+
+// Global variable to track MongoDB connection status
+let isDbConnected = false;
 
 // Enhanced token validation middleware
 function validateToken(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "No token provided" });
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'No token provided' });
   }
 
-  const token = authHeader.split(" ")[1];
+  const token = authHeader.split(' ')[1];
 
   try {
-    const base64Payload = token.split(".")[1];
-    const payload = JSON.parse(Buffer.from(base64Payload, "base64").toString());
+    const base64Payload = token.split('.')[1];
+    const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString());
     req.user = payload;
     next();
   } catch (err) {
-    console.error("Token validation error:", err);
-    return res.status(401).json({ message: "Invalid token" });
+    console.error('Token validation error:', err);
+    return res.status(401).json({ message: 'Invalid token' });
   }
+}
+
+// Database connection middleware
+async function connectDb(req, res, next) {
+  if (!isDbConnected) {
+    try {
+      await client.connect();
+      isDbConnected = true;
+      console.log('MongoDB connection established');
+    } catch (err) {
+      console.error('MongoDB connection error:', err);
+      return res.status(503).json({ message: 'Database connection failed' });
+    }
+  }
+  next();
 }
 
 async function run() {
   try {
+    // Initialize connection
     await client.connect();
-    console.log("Connected to MongoDB Atlas");
+    isDbConnected = true;
+    console.log('Connected to MongoDB Atlas');
 
-    const db = client.db("recipe-book");
-    const collection = db.collection("recipes");
+    const db = client.db('recipe-book');
+    const collection = db.collection('recipes');
 
-    // Health check endpoint
-    app.get("/health", (req, res) => {
-      res.status(200).json({
-        status: "ok",
-        db: client.topology.isConnected() ? "connected" : "disconnected",
+    // Apply database connection middleware to all routes
+    app.use(connectDb);
+
+    // Health check endpoint with DB status
+    app.get('/health', (req, res) => {
+      res.status(200).json({ 
+        status: 'ok',
+        db: isDbConnected ? 'connected' : 'disconnected',
+        timestamp: new Date().toISOString()
       });
     });
 
     // Basic routes
-    app.get("/", (req, res) => {
-      res.send("Welcome to the Recipe Book API");
+    app.get('/', (req, res) => {
+      res.send('Welcome to the Recipe Book API');
     });
 
     // Auth check endpoint
-    app.get("/auth-check", (req, res) => {
-      const authHeader = req.headers["authorization"];
-      if (authHeader) {
-        res.status(200).json({
-          message: "Auth header received",
-          headerLength: authHeader.length,
-        });
-      } else {
-        res.status(200).json({ message: "No auth header received" });
-      }
+    app.get('/auth-check', (req, res) => {
+      const authHeader = req.headers['authorization'];
+      res.status(200).json({
+        authorized: !!authHeader,
+        headerLength: authHeader?.length || 0
+      });
     });
 
     // Recipe endpoints
@@ -327,15 +351,18 @@ async function run() {
       }
     });
 
-    // Error handling middleware
+        // Enhanced error handling middleware
     app.use((err, req, res, next) => {
-      console.error("Server error:", err);
-      res.status(500).json({ message: "Internal server error" });
+      console.error('Server error:', err);
+      res.status(500).json({ 
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
     });
 
     // 404 handler
     app.use((req, res) => {
-      res.status(404).json({ message: "Route not found" });
+      res.status(404).json({ message: 'Route not found' });
     });
 
     // Start server
@@ -345,23 +372,25 @@ async function run() {
     });
 
     // Graceful shutdown
-    process.on("SIGTERM", () => {
-      console.log("SIGTERM received. Shutting down gracefully");
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM received. Shutting down gracefully');
       server.close(() => {
         client.close().then(() => {
-          console.log("Server and MongoDB connection closed");
+          console.log('Server and MongoDB connection closed');
           process.exit(0);
         });
       });
     });
+
   } catch (error) {
-    console.error("Error connecting to MongoDB Atlas:", error);
+    console.error('Initialization error:', error);
     process.exit(1);
   }
 }
 
-run().catch((err) => {
-  console.error("Fatal error:", err);
+// Start the application
+run().catch(err => {
+  console.error('Fatal error:', err);
   process.exit(1);
 });
 

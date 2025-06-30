@@ -371,23 +371,22 @@ app.use((req, res) => {
 // সার্ভার স্টার্ট
 const port = process.env.PORT || 5000;
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server running on port ${port}`);
-}).on('error', (err) => {
-  console.error('Server failed to start:', err);
-});
-else {
-  // Development মোডে DB কানেক্ট করে সার্ভার স্টার্ট করবে
-  connectToMongoDB()
-    .then(() => {
-      app.listen(port, () => {
-        console.log(`Server running in development mode on port ${port}`);
-      });
-    })
-    .catch(err => {
-      console.error('Failed to start server:', err);
-      process.exit(1);
+if (process.env.NODE_ENV !== 'production') {
+  // Development mode
+  run().then(() => {
+    app.listen(port, () => {
+      console.log(`Server running in development mode on port ${port}`);
     });
+  }).catch(err => {
+    console.error('Fatal initialization error:', err);
+    process.exit(1);
+  });
+} else {
+  // Production mode
+  app.listen(port, () => {
+    console.log(`Server running in production mode on port ${port}`);
+  });
 }
+
 
 module.exports = app;

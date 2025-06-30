@@ -5,11 +5,11 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express();
 
-// Enhanced CORS configuration
+// CORS কনফিগারেশন
 const allowedOrigins = [
   'http://localhost:8080',
   'https://recipe-book-39501.web.app',
-  'https://recipe-book-39501.vercel.app' // Add your Vercel app URL
+  'https://your-render-app.onrender.com' // আপনার Render.com ডোমেইন
 ];
 
 const corsOptions = {
@@ -26,10 +26,9 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
 app.use(express.json());
 
-// MongoDB connection with enhanced error handling
+// MongoDB কানেকশন সেটআপ
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.nfwtcj8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 const client = new MongoClient(uri, {
@@ -40,15 +39,29 @@ const client = new MongoClient(uri, {
   },
   connectTimeoutMS: 10000,
   socketTimeoutMS: 30000,
-  maxPoolSize: 50, // Added connection pooling
-  minPoolSize: 10,
-  serverSelectionTimeoutMS: 5000,
+  maxPoolSize: 50,
+  minPoolSize: 10
 });
 
-// Global variable to track MongoDB connection status
+// গ্লোবাল ভেরিয়েবল
 let isDbConnected = false;
+let db, collection;
 
-// Enhanced token validation middleware
+// MongoDB কানেকশন ফাংশন
+async function connectToMongoDB() {
+  try {
+    await client.connect();
+    isDbConnected = true;
+    db = client.db('recipe-book');
+    collection = db.collection('recipes');
+    console.log('MongoDB connected successfully');
+  } catch (error) {
+    console.error('MongoDB connection error:', error);
+    throw error;
+  }
+}
+
+// টোকেন ভ্যালিডেশন মিডলওয়্যার
 function validateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -68,47 +81,32 @@ function validateToken(req, res, next) {
   }
 }
 
-// Database connection middleware
-async function connectDb(req, res, next) {
+// ডাটাবেজ মিডলওয়্যার
+async function dbMiddleware(req, res, next) {
   if (!isDbConnected) {
     try {
-      await client.connect();
-      isDbConnected = true;
-      console.log('MongoDB connection established');
-    } catch (err) {
-      console.error('MongoDB connection error:', err);
+      await connectToMongoDB();
+    } catch (error) {
       return res.status(503).json({ message: 'Database connection failed' });
     }
   }
+  req.db = { db, collection };
   next();
 }
 
-async function run() {
-  try {
-    // Initialize connection
-    await client.connect();
-    isDbConnected = true;
-    console.log('Connected to MongoDB Atlas');
+// রাউটস
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    db: isDbConnected ? 'connected' : 'disconnected',
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
 
-    const db = client.db('recipe-book');
-    const collection = db.collection('recipes');
+app.get('/', (req, res) => {
+  res.send('Recipe Book API is running');
+});
 
-    // Apply database connection middleware to all routes
-    app.use(connectDb);
-
-    // Health check endpoint with DB status
-    app.get('/health', (req, res) => {
-      res.status(200).json({ 
-        status: 'ok',
-        db: isDbConnected ? 'connected' : 'disconnected',
-        timestamp: new Date().toISOString()
-      });
-    });
-
-    // Basic routes
-    app.get('/', (req, res) => {
-      res.send('Welcome to the Recipe Book API');
-    });
 
     // Auth check endpoint
     app.get('/auth-check', (req, res) => {
@@ -350,48 +348,40 @@ async function run() {
         });
       }
     });
-
-        // Enhanced error handling middleware
-    app.use((err, req, res, next) => {
-      console.error('Server error:', err);
-      res.status(500).json({ 
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
-      });
-    });
-
-    // 404 handler
-    app.use((req, res) => {
-      res.status(404).json({ message: 'Route not found' });
-    });
-
-    // Start server
-    const port = process.env.PORT || 5000;
-    const server = app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-    });
-
-    // Graceful shutdown
-    process.on('SIGTERM', () => {
-      console.log('SIGTERM received. Shutting down gracefully');
-      server.close(() => {
-        client.close().then(() => {
-          console.log('Server and MongoDB connection closed');
-          process.exit(0);
-        });
-      });
-    });
-
-  } catch (error) {
-    console.error('Initialization error:', error);
-    process.exit(1);
-  }
-}
-
-// Start the application
-run().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
+// এরর হ্যান্ডলিং
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({
+    message: 'Internal Server Error',
+    ...(process.env.NODE_ENV === 'development' && { error: err.message })
+  });
 });
+
+// 404 হ্যান্ডলার
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
+});
+
+// সার্ভার স্টার্ট
+const port = process.env.PORT || 5000;
+
+if (process.env.NODE_ENV === 'production') {
+  // Production মোডে শুধু সার্ভার স্টার্ট করবে
+  app.listen(port, () => {
+    console.log(`Server running in production mode on port ${port}`);
+  });
+} else {
+  // Development মোডে DB কানেক্ট করে সার্ভার স্টার্ট করবে
+  connectToMongoDB()
+    .then(() => {
+      app.listen(port, () => {
+        console.log(`Server running in development mode on port ${port}`);
+      });
+    })
+    .catch(err => {
+      console.error('Failed to start server:', err);
+      process.exit(1);
+    });
+}
 
 module.exports = app;

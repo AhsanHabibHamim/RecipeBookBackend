@@ -50,13 +50,19 @@ let db, collection;
 // MongoDB কানেকশন ফাংশন
 async function connectToMongoDB() {
   try {
+    console.log('Connecting to MongoDB Atlas...');
+    console.log('Connection URI:', uri.replace(/:[^@]*@/, ':********@')); // পাসওয়ার্ড লুকানো
+    
     await client.connect();
+    await client.db("admin").command({ ping: 1 });
     isDbConnected = true;
     db = client.db('recipe-book');
     collection = db.collection('recipes');
-    console.log('MongoDB connected successfully');
+    console.log('MongoDB successfully connected!');
+    return true;
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    console.error('MongoDB connection failed:', error);
+    isDbConnected = false;
     throw error;
   }
 }
